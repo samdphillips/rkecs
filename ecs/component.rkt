@@ -71,8 +71,8 @@
                        (unquoted-printing-string (format "#:~a" f))
                        fv*)))))))
 
-(define-simple-macro
-  (define-component name:id fields:default-field ...)
+(define-simple-macro (define-component name:id
+                       fields:default-field ...)
   #:with tag-name
   (format-id #'name "~a@" #'name)
   #:with pred-name
@@ -102,8 +102,8 @@
     (define-component-constructor name fields ...)
     (define-component-accessors name fields.name ...)))
 
-(define-simple-macro
-  (define-component-constructor struct-descr:id fields:default-field ...)
+(define-simple-macro (define-component-constructor struct-descr:id
+                       fields:default-field ...)
   #:with
   constructor-name
   (format-id #'struct-descr "make-~a" #'struct-descr)
@@ -123,8 +123,7 @@
                               (~@ default-args.keyword default-args) ...)
       (maker entity fields.name ...))))
     
-(define-simple-macro
-  (define-component-accessors struct-descr:id fields:id ...)
+(define-simple-macro (define-component-accessors struct-descr:id fields:id ...)
   #:with
   ([field-indices field-mutators field-accessors field-updaters] ...)
   (for/list ([field (in-syntax #'(fields ...))]
