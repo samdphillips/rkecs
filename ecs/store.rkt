@@ -3,8 +3,10 @@
 (require racket/sequence
          racket/set
          racket/stream
-         rebellion/collection/multiset
          "component.rkt")
+
+(module+ test
+  (require rackunit))
 
 (provide make-entity-store
          entity-store?         
@@ -13,19 +15,40 @@
 
          add-component!
 
-         remove-all/tag!
+         remove-all-with-tag!
          
-         find-entities/tag
-         find-entities/tags
+         find-entities-with-tag
+         find-entities-with-tags
 
-         entity-component/first
-         entity-component/all
-         
-         )
+         find-first-component-by-entity
+         find-all-component-by-entity)
 
-;; components-by-entity : Hash Entity (Setof Component)
+(struct bag (store))
+
+(define empty-bag (bag (hasheq)))
+
+(define (bag-update a-bag proc)
+  (bag (proc (bag-store a-bag))))
+
+(define (bag-add a-bag an-element)
+  (bag-update a-bag (lambda (ht) (hash-update ht an-element add1 0))))
+
+(define (bag-unique-elements a-bag)
+  (for/set ([element (in-hash-keys (bag-store a-bag))]) element))
+
+(module+ test
+  (check-equal? (set) (bag-unique-elements empty-bag))
+  (check-equal? (set 'a) (bag-unique-elements (bag-add empty-bag 'a)))
+  (check-equal? (set 'a 'b) (bag-unique-elements
+                             (bag-add (bag-add empty-bag 'a) 'b)))
+  (check-equal? (set 'a 'b) (bag-unique-elements
+                             (bag-add
+                              (bag-add
+                               (bag-add empty-bag 'a) 'b) 'a))))
+
+;; components-by-entity : Hash Entity    (Setof Component)
 ;; components-by-tag : Hash ComponentTag (Setof Component)
-;; entities-by-tag : Hash ComponentTag (Multisetof Entity)
+;; entities-by-tag : Hash ComponentTag   (Bagof Entity)
 (struct entity-store (components-by-entity components-by-tag entities-by-tag))
 
 (define (make-entity-store)
@@ -41,17 +64,17 @@
                   (get-tag a-component)
                   (lambda (c*) (store-add c* (get-value a-component)))
                   store))
-  (define update-set!      (make-update! set-add seteq))
-  (define update-multiset! (make-update! multiset-add multiset))
+  (define update-set! (make-update! set-add seteq))
+  (define update-bag! (make-update! bag-add empty-bag))
   (update-set! entity-store-components-by-entity
                component-entity
                values)
   (update-set! entity-store-components-by-tag
                component-tag
                values)
-  (update-multiset! entity-store-entities-by-tag
-                    component-tag
-                    component-entity))
+  (update-bag! entity-store-entities-by-tag
+               component-tag
+               component-entity))
 
 (define (entity-store-num-components #:entity-store
                                      [es (current-entity-store)])
@@ -83,13 +106,16 @@
                            [es (current-entity-store)])
   ...)
 
-(define (remove-all/tag! a-tag
-                         #:entity-store
-                         [an-entity-store (current-entity-store)])
+
+;; remove-all-with-tag! Tag [Store] -> Void
+;; Removes all components with a specific tag
+(define (remove-all-with-tag! a-tag
+                              #:entity-store
+                              [an-entity-store (current-entity-store)])
   (define entities
-    (multiset-unique-elements
+    (bag-unique-elements
      (hash-ref
-      (entity-store-entities-by-tag an-entity-store) a-tag empty-multiset)))
+      (entity-store-entities-by-tag an-entity-store) a-tag empty-bag)))
   (define components-by-entity
     (entity-store-components-by-entity an-entity-store))  
   
@@ -103,44 +129,124 @@
                               #:unless (eq? a-tag (component-tag a-component)))
                       a-component)))))
 
-(define (find-entities/tag component-tag
-                           #:entity-store
-                           [es (current-entity-store)])  
-  (multiset-unique-elements
+
+(module+ test
+  (test-begin
+   "remove components with tags"
+   (define-component key name)
+   (parameterize ([current-entity-store (make-entity-store)])
+     (define k1 (make-key #:entity 'player #:name #\q))
+     (define k2 (make-key #:entity 'player #:name #\w))
+     (add-component! k1)
+     (add-component! k2)
+     (check-equal?
+      (for/set ([c (find-all-component-by-entity 'player key@)]) c)
+      (set k1 k2))
+     (remove-all-with-tag! key@)
+     (check-equal? (sequence-length
+                    (find-all-component-by-entity 'player key@))
+                   0))))
+
+
+;; find-entities-with-tag : Tag [Store] -> (Setof Entity)
+;; find all entities with a specific tag
+(define (find-entities-with-tag component-tag
+                                #:entity-store
+                                [es (current-entity-store)])
+  (bag-unique-elements
    (hash-ref (entity-store-entities-by-tag es)
              component-tag
-             empty-multiset)))
+             empty-bag)))
 
-(define (find-entities/tags ctags
-                            #:entity-store
-                            [es (current-entity-store)])
+
+;; find-entities-with-tags : (Listof Tag) [Store] -> (Setof Entity)
+;; find all entities with all of the specified tags
+(define (find-entities-with-tags ctags
+                                 #:entity-store
+                                 [es (current-entity-store)])
   (define (empty? s)
     (and s (set-empty? s)))
   (define (intersect a b)
     (if a (set-intersect a b) b))
   (for/fold ([entities #f]) ([tag (in-list ctags)] #:break (empty? entities))
-    (intersect entities (find-entities/tag tag))))
+    (intersect entities (find-entities-with-tag tag))))
 
 
+(module+ test
+  (test-begin
+   "find entities with tags"
+   (define-component posn [x 0] [y 0])
+   (define-component dir [dx 0] [dy 0])
+   (parameterize ([current-entity-store (make-entity-store)])
+     (add-component! (make-posn #:entity 'player))
+     (add-component! (make-posn #:entity 'barrier #:x 10 #:y 10))
+     (add-component! (make-dir  #:entity 'player))
+     (check-equal? (set 'player 'barrier) (find-entities-with-tag posn@))
+     (check-equal? (set 'player) (find-entities-with-tags (list dir@ posn@))))))
 
-(define (entity-component/all entity
-                              ctag
-                              #:entity-store
-                              [es (current-entity-store)])
+
+;; find-all-component-by-entity : Entity Tag [Store] -> (Sequenceof Component)
+;; find all of the components on an entity with a specific Tag
+(define (find-all-component-by-entity entity
+                                      ctag
+                                      #:entity-store
+                                      [es (current-entity-store)])
   (sequence-filter
    (lambda (c)
      (eq? (component-tag c) ctag))
    (hash-ref (entity-store-components-by-entity es) entity null)))
-  
-(define (entity-component/first entity
-                                ctag
-                                #:entity-store
-                                [es (current-entity-store)])
-  (define components
-    (sequence->stream
-     (entity-component/all entity ctag #:entity-store es)))
-  (and (not (stream-empty? components))
-       (stream-first components)))
+
+
+(module+ test
+  (test-begin
+   "find all components"
+   (define-component posn [x 0] [y 0])
+   (parameterize ([current-entity-store (make-entity-store)])
+     (define p1 (make-posn #:entity 'player))
+     (add-component! p1)
+     (define result1 (sequence->list
+                      (find-all-component-by-entity 'player posn@)))
+     (check-equal? result1 (list p1))
+
+     (define p2 (make-posn #:entity 'player))
+     (add-component! p2)
+     (define result2
+       (for/set ([component (find-all-component-by-entity 'player posn@)])
+         component))
+     (check-equal? (set p1 p2) result2))))
+
+
+(define (find-first-component-by-entity an-entity
+                                        a-component-tag
+                                        #:entity-store
+                                        [es (current-entity-store)])
+  (for/first ([component
+               (find-all-component-by-entity an-entity
+                                             a-component-tag
+                                             #:entity-store es)])
+    component))
+
+
+(module+ test
+  (test-begin
+   "find first components"
+   (define-component posn [x 0] [y 0])
+   (parameterize ([current-entity-store (make-entity-store)])
+     (define result0 (find-first-component-by-entity 'player posn@))
+     (check-equal? result0 #f)
+
+     (define p1 (make-posn #:entity 'player))
+     (add-component! p1)
+     (define result1 (find-first-component-by-entity 'player posn@))
+     (check-equal? result1 p1)
+
+     (define p2 (make-posn #:entity 'player))
+     (add-component! p2)
+     (define result2 (find-first-component-by-entity 'player posn@))
+     ;; no guarantee which will be returned
+     (check-true (or (equal? result2 p2) (equal? result2 p1))))))
+
+
 
 (define current-entity-store (make-parameter #f))
 
