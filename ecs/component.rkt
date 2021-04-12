@@ -71,17 +71,16 @@
                        (unquoted-printing-string (format "#:~a" f))
                        fv*)))))))
 
-(define-simple-macro (define-component name:id
-                       fields:default-field ...)
+(define-syntax-parse-rule (define-component name:id fields:default-field ...)
   #:with tag-name
-  (format-id #'name "~a@" #'name)
+  (format-id #'name #:subs? #t "~a@" #'name)
   #:with pred-name
-  (format-id #'name "~a?" #'name)
+  (format-id #'name #:subs? #t "~a?" #'name)
   #:with constructor-name
-  (format-id #'name "make-~a" #'name)
+  (format-id #'name #:subs? #t "make-~a" #'name)
   #:with num-fields
   (length (syntax->list #'(fields ...)))
-  
+
   (begin
     (define tag-name (make-component-tag 'tag-name))
     (define name
@@ -102,12 +101,12 @@
     (define-component-constructor name fields ...)
     (define-component-accessors name fields.name ...)))
 
-(define-simple-macro (define-component-constructor struct-descr:id
-                       fields:default-field ...)
+(define-syntax-parse-rule (define-component-constructor struct-name:id
+                            fields:default-field ...)
   #:with
   constructor-name
-  (format-id #'struct-descr "make-~a" #'struct-descr)
-  
+  (format-id #:subs? #t #'struct-name "make-~a" #'struct-name)
+
   #:with
   (required-args:default-field ...)
   (collect-constructor-args #'(fields ...) not)
@@ -115,28 +114,34 @@
   #:with
   (default-args:default-field ...)
   (collect-constructor-args #'(fields ...) values)
-  
+
   (begin
-    (define maker (struct-descriptor-constructor struct-descr))
+    (define maker (struct-descriptor-constructor struct-name))
     (define (constructor-name #:entity entity
                               (~@ required-args.keyword required-args.name) ...
                               (~@ default-args.keyword default-args) ...)
       (maker entity fields.name ...))))
-    
-(define-simple-macro (define-component-accessors struct-descr:id fields:id ...)
+
+(define-syntax-parse-rule (define-component-accessors struct-name:id fields:id ...)
   #:with
   ([field-indices field-mutators field-accessors field-updaters] ...)
   (for/list ([field (in-syntax #'(fields ...))]
              [i (in-naturals)])
     (list #`'#,i
-          (format-id field "set-~a-~a!" #'struct-descr field)
-          (format-id field "~a-~a" #'struct-descr field)
-          (format-id field "update-~a-~a!" #'struct-descr field)))
-  
+          (format-id field
+                     #:subs? #t
+                     "set-~a-~a!" #'struct-name field)
+          (format-id field
+                     #:subs? #t
+                     "~a-~a" #'struct-name field)
+          (format-id field
+                     #:subs? #t
+                     "update-~a-~a!" #'struct-name field)))
+
   (begin
-    (define accessor (struct-descriptor-accessor struct-descr))
-    (define mutator  (struct-descriptor-mutator  struct-descr))
-    (define updater  (struct-descriptor-updater  struct-descr))
+    (define accessor (struct-descriptor-accessor struct-name))
+    (define mutator  (struct-descriptor-mutator  struct-name))
+    (define updater  (struct-descriptor-updater  struct-name))
 
     (define-values (field-mutators ...)
       (values (procedure-rename
@@ -151,7 +156,7 @@
                  (accessor s field-indices))
                'field-accessors)
               ...))
-    
+
     (define-values (field-updaters ...)
       (values (procedure-rename
                (lambda (s f)

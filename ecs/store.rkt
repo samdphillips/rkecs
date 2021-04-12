@@ -2,59 +2,39 @@
 
 (require racket/sequence
          racket/set
-         racket/stream
-         "component.rkt")
+
+         ecs/component
+         ecs/private/bag)
 
 (module+ test
   (require rackunit))
 
 (provide make-entity-store
-         entity-store?         
+         entity-store?
          entity-store-all-components
          current-entity-store
 
          add-component!
 
          remove-all-with-tag!
-         
+
          find-entities-with-tag
          find-entities-with-tags
 
          find-first-component-by-entity
          find-all-component-by-entity)
 
-(struct bag (store))
-
-(define empty-bag (bag (hasheq)))
-
-(define (bag-update a-bag proc)
-  (bag (proc (bag-store a-bag))))
-
-(define (bag-add a-bag an-element)
-  (bag-update a-bag (lambda (ht) (hash-update ht an-element add1 0))))
-
-(define (bag-unique-elements a-bag)
-  (for/set ([element (in-hash-keys (bag-store a-bag))]) element))
-
-(module+ test
-  (check-equal? (set) (bag-unique-elements empty-bag))
-  (check-equal? (set 'a) (bag-unique-elements (bag-add empty-bag 'a)))
-  (check-equal? (set 'a 'b) (bag-unique-elements
-                             (bag-add (bag-add empty-bag 'a) 'b)))
-  (check-equal? (set 'a 'b) (bag-unique-elements
-                             (bag-add
-                              (bag-add
-                               (bag-add empty-bag 'a) 'b) 'a))))
-
-;; components-by-entity : Hash Entity    (Setof Component)
-;; components-by-tag : Hash ComponentTag (Setof Component)
-;; entities-by-tag : Hash ComponentTag   (Bagof Entity)
+;; components-by-entity : Hash Entity       (Setof Component)
+;; components-by-tag    : Hash ComponentTag (Setof Component)
+;; entities-by-tag      : Hash ComponentTag (Bagof Entity)
 (struct entity-store (components-by-entity components-by-tag entities-by-tag))
 
 (define (make-entity-store)
   (entity-store (make-hasheq)
                 (make-hasheq)
                 (make-hasheq)))
+
+(define current-entity-store (make-parameter #f))
 
 (define (add-component! a-component
                         #:entity-store
@@ -87,7 +67,6 @@
     (entity-store-components-by-tag es))
   (for/fold ([c (seteq)]) ([c* (in-hash-values components-by-tag)])
     (set-union c c*)))
-             
 
 #;#;#;
 (define (remove-entity! an-entity
@@ -96,7 +75,7 @@
   ...)
 
 (define (remove-component/entity! a-component-or-tag
-                                  an-entity                                  
+                                  an-entity
                                   #:entity-store
                                   [es (current-entity-store)])
   ...)
@@ -117,8 +96,8 @@
      (hash-ref
       (entity-store-entities-by-tag an-entity-store) a-tag empty-bag)))
   (define components-by-entity
-    (entity-store-components-by-entity an-entity-store))  
-  
+    (entity-store-components-by-entity an-entity-store))
+
   (hash-remove! (entity-store-components-by-tag an-entity-store) a-tag)
   (hash-remove! (entity-store-entities-by-tag an-entity-store) a-tag)
   (for ([entity (in-set entities)])
@@ -247,6 +226,4 @@
      (check-true (or (equal? result2 p2) (equal? result2 p1))))))
 
 
-
-(define current-entity-store (make-parameter #f))
 
